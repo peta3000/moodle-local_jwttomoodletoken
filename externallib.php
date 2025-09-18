@@ -64,15 +64,16 @@ class local_jwttomoodletoken_external extends external_api {
             'Authorization: Bearer ' . $params['accesstoken'],
         ];
 
-        error_log('[jwttomoodletoken] using curl path on pod='.gethostname());
+        // Moodle way implementing debugging/logging.
+        debugging('[jwttomoodletoken] using curl path on host=' . php_uname('n'), DEBUG_DEVELOPER);
 
         $curl = new curl();
         $curl->setHeader($headers);
         $curl->setopt([
-            'CURLOPT_CONNECTTIMEOUT' => 10,
-            'CURLOPT_TIMEOUT'        => 20,
-            'CURLOPT_SSL_VERIFYPEER' => true,
-            'CURLOPT_SSL_VERIFYHOST' => 2,
+            'connecttimeout' => 10,
+            'timeout'        => 20,
+            'ssl_verifypeer' => true,
+            'ssl_verifyhost' => 2,
         ]);
 
         $response = $curl->get($userinfo_url);
@@ -83,15 +84,15 @@ class local_jwttomoodletoken_external extends external_api {
 
         if ($errno) {
             // Network/TLS error before any HTTP response from PocketCampus.
-            throw new moodle_exception('curlerror', 'local_jwttomoodletoken', '', null,
+            throw new moodle_exception('generalexceptionmessage', 'error', '',
                 'cURL error ' . $errno . ': ' . $error);
         }
 
         // Decode JSON body (even for non-2xx HTTP status results, their API returns JSON error objects).
         $user_attributes = json_decode((string)$response, true);
         if (!is_array($user_attributes)) {
-            throw new moodle_exception('invalidresponse', 'local_jwttomoodletoken', '', null,
-                'UserInfo did not return valid JSON (HTTP '.$httpcode.')');
+            throw new moodle_exception('generalexceptionmessage', 'error', '',
+                'UserInfo did not return valid JSON (HTTP ' . $httpcode . ')');
         }
 
         // Handle API-level errors returned by UserInfo.
