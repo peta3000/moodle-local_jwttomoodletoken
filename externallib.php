@@ -27,6 +27,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->libdir . '/externallib.php');
+require_once($CFG->libdir . '/filelib.php'); // Moodle cURL wrapper.
 
 class local_jwttomoodletoken_external extends external_api {
 
@@ -57,27 +58,50 @@ class local_jwttomoodletoken_external extends external_api {
         $userinfo_url = get_config('local_jwttomoodletoken', 'userinfo_url');
         $username_attribute = get_config('local_jwttomoodletoken', 'username_attribute');
 
-        $user_attributes = json_decode(
-            file_get_contents(
-                $userinfo_url,
-                false,
-                stream_context_create(
-                    array(
-                        'http' => array(
-                            'ignore_errors' => true,
-                            'header' => "Authorization: Bearer {$params['accesstoken']}"
-                        )
-                    )
-                )
-            ),
-            true
-        );
-        if ($user_attributes['error'] == 'invalid_grant') {
+        // Fetch UserInfo via Moodle cURL (replaces file_get_contents to avoid allow_url_fopen=0).
+        $headers = [
+            'Accept: application/json',
+            'Authorization: Bearer ' . $params['accesstoken'],
+        ];
+
+        error_log('[jwttomoodletoken] using curl path on pod='.gethostname());
+
+        $curl = new curl();
+        $curl->setHeader($headers);
+        $curl->setopt([
+            'CURLOPT_CONNECTTIMEOUT' => 10,
+            'CURLOPT_TIMEOUT'        => 20,
+            'CURLOPT_SSL_VERIFYPEER' => true,
+            'CURLOPT_SSL_VERIFYHOST' => 2,
+        ]);
+
+        $response = $curl->get($userinfo_url);
+        $errno    = $curl->get_errno();
+        $error    = $curl->error;
+        $info     = $curl->get_info();
+        $httpcode = isset($info['http_code']) ? (int)$info['http_code'] : 0;
+
+        if ($errno) {
+            // Network/TLS error before any HTTP response from PocketCampus.
+            throw new moodle_exception('curlerror', 'local_jwttomoodletoken', '', null,
+                'cURL error ' . $errno . ': ' . $error);
+        }
+
+        // Decode JSON body (even for non-2xx HTTP status results, their API returns JSON error objects).
+        $user_attributes = json_decode((string)$response, true);
+        if (!is_array($user_attributes)) {
+            throw new moodle_exception('invalidresponse', 'local_jwttomoodletoken', '', null,
+                'UserInfo did not return valid JSON (HTTP '.$httpcode.')');
+        }
+
+        // Handle API-level errors returned by UserInfo.
+        if (isset($user_attributes['error']) && $user_attributes['error'] === 'invalid_grant') {
             throw new moodle_exception('invalidaccesstoken', 'webservice');
         }
-        if ($user_attributes['error']) {
+        if (isset($user_attributes['error']) && $user_attributes['error']) {
             throw new moodle_exception('userinfoerror', 'webservice', '', $user_attributes);
         }
+        // End cURL UserInfo.
 
         $username = $user_attributes[$username_attribute];
         if (is_array($username)) {
