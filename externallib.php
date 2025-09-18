@@ -70,10 +70,10 @@ class local_jwttomoodletoken_external extends external_api {
         $curl = new curl();
         $curl->setHeader($headers);
         $curl->setopt([
-            'connecttimeout' => 10,
-            'timeout'        => 20,
-            'ssl_verifypeer' => true,
-            'ssl_verifyhost' => 2,
+            'CURLOPT_CONNECTTIMEOUT' => 10,
+            'CURLOPT_TIMEOUT'        => 20,
+            'CURLOPT_SSL_VERIFYPEER' => true,
+            'CURLOPT_SSL_VERIFYHOST' => 2,
         ]);
 
         $response = $curl->get($userinfo_url);
